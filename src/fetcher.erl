@@ -221,3 +221,17 @@ parse_http(X) ->
                     end
             end
     end.
+
+% In order to assemble fully qualified links from relative ones, we need
+% to figure out the base href of a document, given a link; this is a naive
+% and buggy skeleton I'm committing at 2:41a :)
+get_base_href(Url) -> 
+    X = lists:reverse(Url),
+    scan_for_slash(X).
+
+scan_for_slash(X) ->
+    [FirstChar|Rest] = X,
+    case FirstChar of
+	$/ -> lists:reverse(Rest);
+	_  -> scan_for_slash(Rest)
+    end.
