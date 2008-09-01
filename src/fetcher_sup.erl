@@ -25,6 +25,7 @@
 %% Description: Starts the supervisor
 %%--------------------------------------------------------------------
 start_link(StartArgs) ->
+    io:fwrite("~s~n", [?MODULE]),
     supervisor:start_link({local, ?SERVER}, ?MODULE, StartArgs).
 
 %%====================================================================

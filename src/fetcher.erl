@@ -117,14 +117,14 @@ process_task(Task) ->
                       [], [{body_format, string}]) of
         {ok, {{_Version, 200, _Reason}, _Headers, Body}} ->
             Parsed = mochiweb_html:parse(Body),
-
+	  
             Links = extract_document_links(Parsed),
 
-            DocumentText = clean_document(Parsed),
-            TermFrequencies = clustering:term_frequencies(DocumentText),
+            %DocumentText = clean_document(Parsed),
+            %TermFrequencies = clustering:term_frequencies(DocumentText),
 
             #result{status=success, body=Body,
-                    term_freqs=TermFrequencies, links=Links};
+                    code="", links=Links};
 
         {ok, {{_Version, 404, _Reason}, _Headers, _Body}} ->
             #result{status=failure, code=404};
@@ -138,7 +138,7 @@ extract_document_links(Html) ->
     BinaryLinks = lists:flatten(extract_links(Html)),
     StringLinks = lists:map(fun(X) -> binary_to_list(X) end,
                             BinaryLinks),
-    CleanedLinks = clean_links(Host, StringLinks),
+    CleanedLinks = clean_links(StringLinks),
     
     lists:filter(fun(dud) -> false;
                     (_X) -> true
@@ -167,13 +167,13 @@ extract_links(X) ->
     io:format("DEBUG: extract_links(~p)~n", [X]),
     [].
 
-clean_links(Host, Links) ->
+clean_links(Links) ->
     lists:map(fun("") -> dud; % Probably an AJAX link.
                  ("javascript:" ++ _Tail) -> dud; % Don't care about JS
                  ("http:") -> dud; % These appear on Google pages sometimes...
                  ("#") -> dud; % Ignore page-local links
-                 ("/" ++ Tail) -> % Site-relative URL, convert to absolute
-                      "http://" ++ Host ++ "/" ++ Tail;
+%                 ("/" ++ Tail) -> % Site-relative URL, convert to absolute
+%                      "http://" ++ Host ++ "/" ++ Tail;
                  ("mailto:" ++ _Tail) -> dud; % Mail links... don't care!
                  ("http://" ++ Tail) -> "http://" ++ Tail;
                  (Other) ->
@@ -184,7 +184,8 @@ clean_links(Host, Links) ->
 clean_document(List) when is_list(List) ->
     lists:map(fun clean_document/1, List);
 clean_document({_Tag, _Attrs, Contents}) -> clean_document(Contents);
-clean_document(Text) when is_binary(Text) -> Text.
+clean_document(Text) when is_binary(Text) -> Text;
+clean_document(_) -> [].
 
 parse([$h,$t,$t,$p,$:,$/,$/|T]) ->  parse_http(T);
 parse([$f,$t,$p,$:,$/,$/|_T])    ->  {error, no_ftp};
