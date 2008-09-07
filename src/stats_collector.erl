@@ -102,5 +102,5 @@ report_stats() ->
     io:format("~nSTATS: l(WorkerQueue) = ~p, l(TaskQueue) = ~p",
               [WorkerQueueLength, TaskQueueLength]),
 
-    timer:apply_after(1000, ?MODULE, report_stats, []),
+    timer:apply_after(10000, ?MODULE, report_stats, []),
     ok.

@@ -109,17 +109,21 @@ code_change(_OldVsn, State, _Extra) ->
 
 process_task(Task) ->
     Url = Task#task.url,
+
     io:format("~p Processing ~p~n", [self(), Url]),
 
-    {http, Host, _Port, _File} = parse(Url),
+    {http, Host, Port, File} = parse(Url),
 
     case http:request(get, {Url, ?HEADERS(Host)},
                       [], [{body_format, string}]) of
         {ok, {{_Version, 200, _Reason}, _Headers, Body}} ->
             Parsed = mochiweb_html:parse(Body),
 	  
-            Links = extract_document_links(Parsed),
+	    % Extracts all links from the document and ensures they
+	    % are within the sandbox
+            Links = filter_regex(extract_document_links(Parsed, {http, Host, Port, File}), Task#task.sandboxRegex),
 
+	   
             %DocumentText = clean_document(Parsed),
             %TermFrequencies = clustering:term_frequencies(DocumentText),
 
@@ -134,11 +138,11 @@ process_task(Task) ->
             #result{status=failure, code=Other}
     end.
 
-extract_document_links(Html) ->
+extract_document_links(Html, {http, Host, Port, File}) ->
     BinaryLinks = lists:flatten(extract_links(Html)),
     StringLinks = lists:map(fun(X) -> binary_to_list(X) end,
                             BinaryLinks),
-    CleanedLinks = clean_links(StringLinks),
+    CleanedLinks = clean_links(StringLinks, {http, Host, Port, File}),
     
     lists:filter(fun(dud) -> false;
                     (_X) -> true
@@ -164,16 +168,19 @@ extract_links([_Head|Tail]) -> extract_links(Tail);
 extract_links(X) when is_binary(X) -> [];
 extract_links([]) -> [];
 extract_links(X) ->
-    io:format("DEBUG: extract_links(~p)~n", [X]),
+%    io:format("DEBUG: extract_links(~p)~n", [X]),
     [].
 
-clean_links(Links) ->
+clean_links(Links, {http, Host, Port, File}) ->
     lists:map(fun("") -> dud; % Probably an AJAX link.
                  ("javascript:" ++ _Tail) -> dud; % Don't care about JS
                  ("http:") -> dud; % These appear on Google pages sometimes...
                  ("#") -> dud; % Ignore page-local links
-%                 ("/" ++ Tail) -> % Site-relative URL, convert to absolute
-%                      "http://" ++ Host ++ "/" ++ Tail;
+                 ("/" ++ Tail) -> % Site-relative URL, convert to absolute
+		      case Port of
+			  80 ->"http://" ++ Host ++ "/" ++ Tail;
+			  _ ->"http://" ++Host++":"+ integer_to_list(Port) ++ "/" ++ Tail
+		      end;   
                  ("mailto:" ++ _Tail) -> dud; % Mail links... don't care!
                  ("http://" ++ Tail) -> "http://" ++ Tail;
                  (Other) ->
@@ -235,3 +242,16 @@ scan_for_slash(X) ->
 	$/ -> lists:reverse(Rest);
 	_  -> scan_for_slash(Rest)
     end.
+
+
+% Filters a list for all items that match a given regular expression. 
+% Items with no match are discarded
+filter_regex(ItemList, Regex) ->
+    lists:filter(fun(Item) ->
+		   case regexp:first_match(Item, Regex) of
+		       {match, _, _} -> true;
+		       _ -> false
+		   end
+	   end,
+	   ItemList).
+

@@ -100,9 +100,12 @@ handle_cast({post_result, Task, Result}, State) ->
     lists:foreach(fun(T) ->
                           case get(T) of
                               undefined ->
-                                  insert_task(T),
-                                  put(T, new);
-                              
+				  % Insert a new task with each URL, retaining other params
+                                  if Task#task.depth /= 1 ->
+					  insert_task(Task#task{url=T, depth=Task#task.depth - 1}),
+					  put(T, new);
+				      true -> ok
+				  end;
                               _Other ->
                                   % Already got this task
                                   ok
@@ -118,18 +121,19 @@ handle_cast({post_result, Task, Result}, State) ->
 
 handle_cast({insert_task, Task}, State) ->
     case queue:is_empty(State#state.worker_queue) of
-        true ->
-            {noreply,
-             State#state{task_queue=queue:in_r(Task,
-                                               State#state.task_queue)}};
-        false ->
-            {{value, Worker}, NewWorkerQueue} =
-             queue:out(State#state.worker_queue),
-
-            gen_server:cast(Worker, {task, Task}),
-            {noreply, State#state{worker_queue=NewWorkerQueue}}
+	true ->
+	    {noreply,
+	     State#state{task_queue=queue:in_r(Task,
+					       State#state.task_queue)}};
+	false ->
+	    {{value, Worker}, NewWorkerQueue} =
+		queue:out(State#state.worker_queue),
+	    
+	    gen_server:cast(Worker, {task, Task}),
+	    {noreply, State#state{worker_queue=NewWorkerQueue}}
     end.
-             
+
+    
 
 %%--------------------------------------------------------------------
 %% Function: handle_info(Info, State) -> {noreply, State} |

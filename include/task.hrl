@@ -1,2 +1,2 @@
 
--record(task, {url}).
+-record(task, {url,sandboxRegex="",depth=-1}).
