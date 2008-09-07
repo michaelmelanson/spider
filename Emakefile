@@ -7,6 +7,7 @@
   "src/task_master",
   "src/stats_collector",
   "src/mochiweb_html",
-  "src/mochiweb_charref"],
+  "src/mochiweb_charref",
+  "src/url_parse"],
  [{i, "include"},
   {outdir, "ebin"}]}.

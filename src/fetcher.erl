@@ -16,6 +16,9 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
          terminate/2, code_change/3]).
 
+%% Internal API
+-export([clean_links/2]).
+
 -include("task.hrl").
 -include("result.hrl").
 
@@ -112,16 +115,18 @@ process_task(Task) ->
 
     io:format("~p Processing ~p~n", [self(), Url]),
 
-    {http, Host, Port, File} = parse(Url),
+    {http, Host, Port, File} = url_parse:parse(Url),
 
     case http:request(get, {Url, ?HEADERS(Host)},
                       [], [{body_format, string}]) of
         {ok, {{_Version, 200, _Reason}, _Headers, Body}} ->
             Parsed = mochiweb_html:parse(Body),
-	  
+	    
+	    % io:format("testing"),
+
 	    % Extracts all links from the document and ensures they
 	    % are within the sandbox
-            Links = filter_regex(extract_document_links(Parsed, {http, Host, Port, File}), Task#task.sandboxRegex),
+            Links = filter_regex(extract_document_links(Parsed, Task#task.url), Task#task.sandboxRegex),
 
 	   
             %DocumentText = clean_document(Parsed),
@@ -138,11 +143,12 @@ process_task(Task) ->
             #result{status=failure, code=Other}
     end.
 
-extract_document_links(Html, {http, Host, Port, File}) ->
+extract_document_links(Html, URL) ->
     BinaryLinks = lists:flatten(extract_links(Html)),
     StringLinks = lists:map(fun(X) -> binary_to_list(X) end,
                             BinaryLinks),
-    CleanedLinks = clean_links(StringLinks, {http, Host, Port, File}),
+    % io:format("here"),
+    CleanedLinks = clean_links(StringLinks, URL),
     
     lists:filter(fun(dud) -> false;
                     (_X) -> true
@@ -168,81 +174,32 @@ extract_links([_Head|Tail]) -> extract_links(Tail);
 extract_links(X) when is_binary(X) -> [];
 extract_links([]) -> [];
 extract_links(X) ->
-%    io:format("DEBUG: extract_links(~p)~n", [X]),
+%%    io:format("DEBUG: extract_links(~p)~n", [X]),
     [].
 
-clean_links(Links, {http, Host, Port, File}) ->
-    lists:map(fun("") -> dud; % Probably an AJAX link.
-                 ("javascript:" ++ _Tail) -> dud; % Don't care about JS
-                 ("http:") -> dud; % These appear on Google pages sometimes...
-                 ("#") -> dud; % Ignore page-local links
-                 ("/" ++ Tail) -> % Site-relative URL, convert to absolute
-		      case Port of
-			  80 ->"http://" ++ Host ++ "/" ++ Tail;
-			  _ ->"http://" ++Host++":"+ integer_to_list(Port) ++ "/" ++ Tail
-		      end;   
-                 ("mailto:" ++ _Tail) -> dud; % Mail links... don't care!
-                 ("http://" ++ Tail) -> "http://" ++ Tail;
-                 (Other) ->
-                      io:format("Dud link: ~p~n", [Other]),
-                      dud
-              end, Links).
+
+%% Updated to more cleanly handle link filtering. Specifically excludes
+%% fully qualified links that don't use the http schem and calls 'qualify/2'
+%% to mediate domain absolute, relative, and fully qualified links. There
+%% are still many sources of false positives, such as links with anchor 
+%% fragments, and perhaps I'll add more special casing, but ultimately
+%% we need a full and complete url parser
+clean_links(Links, SourceLink) -> 
+    lists:map(fun(Link) -> 
+	IsColonFree = string:chr(Link,$:) == 0,
+	case string:rstr(Link,"http://") of
+	    0 when IsColonFree -> url_parse:qualify(SourceLink, Link);
+	    1 -> Link;
+	    _ -> dud
+	end
+    end,Links).
+
 
 clean_document(List) when is_list(List) ->
     lists:map(fun clean_document/1, List);
 clean_document({_Tag, _Attrs, Contents}) -> clean_document(Contents);
 clean_document(Text) when is_binary(Text) -> Text;
 clean_document(_) -> [].
-
-parse([$h,$t,$t,$p,$:,$/,$/|T]) ->  parse_http(T);
-parse([$f,$t,$p,$:,$/,$/|_T])    ->  {error, no_ftp};
-parse([$f,$i,$l,$e,$:,$/,$/|F]) ->  {file, F};
-parse(_X)                        ->  {error, unknown_url_type}.
-
-parse_http(X) ->
-    case string:chr(X, $/) of
-        0 ->
-            %% not terminated by "/" (sigh)
-            %% try again
-            parse_http(X ++ "/");
-        N ->
-            %% The Host is up to the first "/"
-            %% The file is everything else
-            Host = string:substr(X, 1, N-1),
-            File = string:substr(X, N, length(X)),
-            %% Now check to see if the host name contains a colon
-            %% i.e. there is an explicit port address in the hostname
-            case string:chr(Host, $:) of
-                0 ->
-                    %% no colon
-                    Port = 80,
-                    {http, Host, Port, File};
-                M ->
-                    Site = string:substr(Host,1,M-1),
-                    case (catch list_to_integer(
-                                  string:substr(Host, M+1, length(Host)))) of
-                        {'EXIT', _} ->
-                            {http, Site, 80, File};
-                        Port ->
-                            {http, Site, Port, File}
-                    end
-            end
-    end.
-
-% In order to assemble fully qualified links from relative ones, we need
-% to figure out the base href of a document, given a link; this is a naive
-% and buggy skeleton I'm committing at 2:41a :)
-get_base_href(Url) -> 
-    X = lists:reverse(Url),
-    scan_for_slash(X).
-
-scan_for_slash(X) ->
-    [FirstChar|Rest] = X,
-    case FirstChar of
-	$/ -> lists:reverse(Rest);
-	_  -> scan_for_slash(Rest)
-    end.
-
 
 % Filters a list for all items that match a given regular expression. 
 % Items with no match are discarded
